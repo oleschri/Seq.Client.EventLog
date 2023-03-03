@@ -35,7 +35,7 @@ namespace Seq.Client.EventLog
         private static bool _isInteractive;
         private static DateTime _lastTime = DateTime.Now;
         public static string JsonConfigPath { get; set; }
-        public static List<EventLogListener> EventLogListeners { get; set; }
+        public static List<EventLogListener2> EventLogListeners { get; set; }
 
         private static int ZeroLogHeartbeats { get; set; } = 0;
 
@@ -83,7 +83,7 @@ namespace Seq.Client.EventLog
                         JsonConfigPath);
             var file = File.ReadAllText(JsonConfigPath);
 
-            EventLogListeners = JsonConvert.DeserializeObject<List<EventLogListener>>(file);
+            EventLogListeners = JsonConvert.DeserializeObject<List<EventLogListener2>>(file);
         }
 
         public static void ValidateListeners()
