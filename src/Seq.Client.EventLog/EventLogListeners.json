@@ -1,13 +1,19 @@
 ﻿[
   {
     "LogName": "Application",
-    "MessageTemplate": "[{LogName}] {EventId}: {EventDescription:l} {SeqClientEventlog_SeenRecords}",
+    "MessageTemplate": "({SeqClientEventlog_SeenRecords}) [{LogNameProviderCombo}] {EventId}: {EventDescription:l}",
+    "ProcessRetroactiveEntries": false,
+    "StoreLastEntry": true
+  },
+  {
+    "LogName": "Security",
+    "MessageTemplate": "({SeqClientEventlog_SeenRecords}) [{LogNameProviderCombo}] {EventId}: {EventDescription:l}",
     "ProcessRetroactiveEntries": false,
     "StoreLastEntry": true
   },
   {
     "LogName": "System",
-    "MessageTemplate": "[{LogName}] {EventId}: {EventDescription:l} {SeqClientEventlog_SeenRecords}",
+    "MessageTemplate": "({SeqClientEventlog_SeenRecords}) [{LogNameProviderCombo}] {EventId}: {EventDescription:l}",
     "ProcessRetroactiveEntries": false,
     "StoreLastEntry": true
   }

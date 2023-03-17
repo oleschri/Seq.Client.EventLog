@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using System.Security.Cryptography;
+using System.ServiceModel.Security;
 using System.Threading;
 using System.Threading.Tasks;
 using Lurgle.Logging;
@@ -27,7 +28,7 @@ namespace Seq.Client.EventLog
         private HashSet<Tuple<DateTime,long>> _seenRecords;
         private TimeSpan _pollingInterval;
         private TimeSpan _lookbackInterval;
-
+        private int _onRampTimeSeconds;
 
         //Allow a per-log appname to be specified
         public string LogAppName { get; set; }
@@ -117,8 +118,12 @@ namespace Seq.Client.EventLog
                         : "[{LogAppName:l}] Starting {ListenerType:l} listener ({LogAppName:l}) for {LogName:l} on {MachineName:l} ({EventLogListener2})");
 
                 _seenRecords = new HashSet<Tuple<DateTime, long>>();
-                _pollingInterval = TimeSpan.FromSeconds(2);
-                _lookbackInterval = TimeSpan.FromSeconds(_pollingInterval.TotalSeconds * 10);
+                _pollingInterval = TimeSpan.FromSeconds(5);
+                
+                // triple lookback interval, e.g. polling every 5 seconds will still look back for potentially overlooked events that appeared up to 15 seconds ago
+                _lookbackInterval = TimeSpan.FromSeconds(_pollingInterval.TotalSeconds * 3);
+
+                _onRampTimeSeconds = 3;
 
                 _eventLog = new EventLogQuery(LogName, PathType.LogName, "*");
                 _isInteractive = isInteractive;
@@ -131,7 +136,8 @@ namespace Seq.Client.EventLog
                 //_watcher.EventRecordWritten += OnEntryWritten;
                 //_watcher.Enabled = true;
 
-                _timer = new Timer(OnTimerTick, null, TimeSpan.FromSeconds(1), _pollingInterval);
+                int startDelayMilliseconds = new Random().Next(_onRampTimeSeconds * 1000);
+                _timer = new Timer(OnTimerTick, null, TimeSpan.FromMilliseconds(startDelayMilliseconds), _pollingInterval);
 
                 _started = true;
             }
@@ -261,6 +267,7 @@ namespace Seq.Client.EventLog
 
                 var query = new EventLogQuery(LogName, PathType.LogName, queryString);
                 var reader = new EventLogReader(query);
+                reader.BatchSize = 1024; // default is 64, max valid value is 1024
 
                 var logEvent = reader.ReadEvent();
 
@@ -272,10 +279,10 @@ namespace Seq.Client.EventLog
                 }
 
                 // remove outdated seen records
-                _seenRecords.RemoveWhere(r => r.Item1 < (DateTime.Now.Subtract(_lookbackInterval)));  // duplicate polling interval back as safety range
+                _seenRecords.RemoveWhere(r => r.Item1 < (DateTime.Now.Subtract(_lookbackInterval)));
 
                 // continue
-                _timer.Change(TimeSpan.FromSeconds(0), _pollingInterval);
+                _timer.Change(_pollingInterval, _pollingInterval);
             }
             catch (Exception ex)
             {
@@ -318,6 +325,8 @@ namespace Seq.Client.EventLog
 
         private void HandleEventLogEntry(EventRecord entry)
         {
+            string logNameProviderCombo;
+
             if (entry.TimeCreated.Value < ServiceManager.ServiceStart)
             {
                 // event was before we started
@@ -339,7 +348,7 @@ namespace Seq.Client.EventLog
 
             // Don't send the entry to Seq if it doesn't match the filtered log levels, event IDs, or sources
             if (LogLevels != null && LogLevels.Count > 0 && entry.Level != null &&
-                !LogLevels.Contains((byte) entry.Level))
+                !LogLevels.Contains((byte)entry.Level))
             {
                 ServiceManager.UnhandledEvents++;
                 return;
@@ -356,6 +365,22 @@ namespace Seq.Client.EventLog
             {
                 ServiceManager.UnhandledEvents++;
                 return;
+            }
+
+            if (new string[] {"Application","System"}.Contains(LogName))
+            {
+                logNameProviderCombo = String.Format("{0} | {1}", LogName, entry.ProviderName);
+            }
+            else
+            {
+                if (LogName.EndsWith("/Operational"))
+                {
+                    logNameProviderCombo = String.Format("{0}", LogName.Replace("/Operational",""));
+                }
+                else
+                {
+                    logNameProviderCombo = String.Format("{0}", LogName);
+                }
             }
 
             try
@@ -434,6 +459,7 @@ namespace Seq.Client.EventLog
                     .AddProperty("EventIds", EventIds)
                     .AddProperty("Sources", Sources)
                     .AddProperty("Provider", entry.ProviderName)
+                    .AddProperty("LogNameProviderCombo", logNameProviderCombo)
                     .AddProperty("EventId", entry.Id)
                     .AddProperty("EventTime", entry.TimeCreated)
                     .AddProperty("EventTimeLong", eventTimeLong)
